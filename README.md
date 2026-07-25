@@ -76,7 +76,7 @@ The redesigned architecture needed to satisfy the following:
 ### Components
 
 **ECS Server (Node.js)**
-The application server. Runs `server.js` as a Docker container on AWS ECS Fargate. Handles all WebSocket connections, game logic, move validation, and state management. The in-memory `tables` Map is still the primary source of truth during gameplay — reads never go to Redis during a live game.
+The application server runs `server.js` as a Docker container on AWS ECS Fargate. It handles all WebSocket connections, game logic, move validation, and state management. The in-memory `tables` Map remains the primary source of truth during gameplay — reads never go to Redis during a live game.
 
 **Socket.io Rooms**
 Each game table has a corresponding Socket.io room named after its `tableId`. When a player joins a table, their socket joins that room. The server broadcasts state changes to all players in the room with a single `io.to(tableId).emit()` call. Rooms live inside the Node.js process memory — they are not a separate service.
