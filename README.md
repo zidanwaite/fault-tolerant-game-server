@@ -256,6 +256,12 @@ Chosen as the Redis client for Node.js because it supports TLS (required for Ela
 
 **Cloud networking and security.** Locking down security groups — restricting PostgreSQL to ECS traffic only, restricting Redis to within the same security group — is not optional hygiene. Port 5432 open to `0.0.0.0/0` is a real vulnerability that existed before this project and was closed as part of it.
 
+**CAP theorem in practice.** CAP theorem states that a distributed system can only guarantee two of consistency, availability, and partition tolerance simultaneously. This system deliberately prioritizes availability over consistency when Redis is unavailable — moves keep being applied in memory rather than rejecting player moves. The tradeoff is that a server crash during a Redis outage could lose recent state. Understanding this as a conscious design decision rather than an oversight is what separates engineered systems from systems that just happen to work.
+
+**ACID and where it matters.** ACID — Atomicity, Consistency, Isolation, Durability — describes the four properties of reliable database transactions. PostgreSQL guarantees all four, which is why it handles permanent records. Redis does not — individual commands are atomic but sequences of commands are not. This is intentional: PostgreSQL's ACID guarantees come with disk write latency that is unacceptable on the move hot path. Knowing which data needs full ACID guarantees and which does not is a core distributed systems design decision.
+
+**Atomicity in practice.** Atomic operations complete as a single indivisible unit with no partial states visible to other processes. This matters in two places: `withTableLock` ensures the read-validate-apply-save sequence for a move is uninterruptible, preventing race conditions on the same game state. Redis list operations are also atomic, meaning a background worker in a multi-instance deployment could never accidentally grab the same failed game twice and double-write to PostgreSQL.
+
 ---
 
 ## Future Improvements
