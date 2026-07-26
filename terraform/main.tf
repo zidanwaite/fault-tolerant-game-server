@@ -33,11 +33,11 @@ data "aws_subnets" "default" {
 
 # ECS security group — used by ECS tasks
 resource "aws_security_group" "ecs" {
-  name        = "yarddomino-ecs"
-  description = "Security group for YardDomino ECS tasks"
+  name        = "${var.app_name}-ecs"
+  description = "Security group for ECS tasks"
   vpc_id      = data.aws_vpc.default.id
 
-  # Allow Redis (Valkey) access within this security group
+  # Allow Redis access within this security group only
   ingress {
     from_port   = 6379
     to_port     = 6379
@@ -46,16 +46,15 @@ resource "aws_security_group" "ecs" {
     description = "Redis access within ECS security group"
   }
 
-  # Allow server port from load balancer
+  # Allow server port from load balancer only
   ingress {
-    from_port       = 3001
-    to_port         = 3001
+    from_port       = var.app_port
+    to_port         = var.app_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
     description     = "App server access from load balancer"
   }
 
-  # Allow all outbound
   egress {
     from_port   = 0
     to_port     = 0
@@ -64,15 +63,15 @@ resource "aws_security_group" "ecs" {
   }
 
   tags = {
-    Name    = "yarddomino-ecs"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-ecs"
+    Project = var.app_name
   }
 }
 
-# ALB security group — used by the ECS load balancer
+# ALB security group
 resource "aws_security_group" "alb" {
-  name        = "yarddomino-alb"
-  description = "Security group for YardDomino load balancer"
+  name        = "${var.app_name}-alb"
+  description = "Security group for load balancer"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -99,15 +98,15 @@ resource "aws_security_group" "alb" {
   }
 
   tags = {
-    Name    = "yarddomino-alb"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-alb"
+    Project = var.app_name
   }
 }
 
 # RDS security group — restricts PostgreSQL to ECS tasks only
 resource "aws_security_group" "rds" {
-  name        = "yarddomino-rds"
-  description = "Security group for YardDomino RDS — ECS access only"
+  name        = "${var.app_name}-rds"
+  description = "Security group for RDS — ECS access only"
   vpc_id      = data.aws_vpc.default.id
 
   # PostgreSQL only accessible from ECS security group
@@ -119,7 +118,6 @@ resource "aws_security_group" "rds" {
     description     = "PostgreSQL access from ECS tasks only"
   }
 
-  # Allow all traffic within itself (internal VPC communication)
   ingress {
     from_port = 0
     to_port   = 0
@@ -135,8 +133,8 @@ resource "aws_security_group" "rds" {
   }
 
   tags = {
-    Name    = "yarddomino-rds"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-rds"
+    Project = var.app_name
   }
 }
 
@@ -145,24 +143,24 @@ resource "aws_security_group" "rds" {
 # ---------------------------------------------------------------------------
 
 resource "aws_db_subnet_group" "main" {
-  name       = "yarddomino-db-subnet-group"
+  name       = "${var.app_name}-db-subnet-group"
   subnet_ids = data.aws_subnets.default.ids
 
   tags = {
-    Name    = "yarddomino-db-subnet-group"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-db-subnet-group"
+    Project = var.app_name
   }
 }
 
 resource "aws_db_instance" "postgres" {
-  identifier        = "yarddomino-testdb"
+  identifier        = "${var.app_name}-db"
   engine            = "postgres"
   engine_version    = "15"
-  instance_class    = "db.t3.micro"
+  instance_class    = var.db_instance_class
   allocated_storage = 20
   storage_type      = "gp2"
 
-  db_name  = "yarddomino_test"
+  db_name  = var.db_name
   username = var.db_username
   password = var.db_password
 
@@ -175,8 +173,8 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot = true
 
   tags = {
-    Name    = "yarddomino-testdb"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-db"
+    Project = var.app_name
   }
 }
 
@@ -185,20 +183,20 @@ resource "aws_db_instance" "postgres" {
 # ---------------------------------------------------------------------------
 
 resource "aws_elasticache_subnet_group" "main" {
-  name       = "yarddomino-redis-subnet-group"
+  name       = "${var.app_name}-redis-subnet-group"
   subnet_ids = data.aws_subnets.default.ids
 
   tags = {
-    Name    = "yarddomino-redis-subnet-group"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-redis-subnet-group"
+    Project = var.app_name
   }
 }
 
 resource "aws_elasticache_cluster" "redis" {
-  cluster_id           = "yarddominotest-redis"
+  cluster_id           = "${var.app_name}-redis"
   engine               = "valkey"
   engine_version       = "9.1"
-  node_type            = "cache.t4g.micro"
+  node_type            = var.redis_node_type
   num_cache_nodes      = 1
   parameter_group_name = "default.valkey9"
   port                 = 6379
@@ -206,13 +204,13 @@ resource "aws_elasticache_cluster" "redis" {
   subnet_group_name  = aws_elasticache_subnet_group.main.name
   security_group_ids = [aws_security_group.ecs.id]
 
-  # Encryption in transit — requires rediss:// URL
+  # Encryption in transit — requires rediss:// URL in application
   transit_encryption_enabled = true
   at_rest_encryption_enabled = true
 
   tags = {
-    Name    = "yarddominotest-redis"
-    Project = "yarddomino"
+    Name    = "${var.app_name}-redis"
+    Project = var.app_name
   }
 }
 
@@ -221,7 +219,7 @@ resource "aws_elasticache_cluster" "redis" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecr_repository" "app" {
-  name                 = "yarddomino-test"
+  name                 = var.app_name
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -229,8 +227,8 @@ resource "aws_ecr_repository" "app" {
   }
 
   tags = {
-    Name    = "yarddomino-test"
-    Project = "yarddomino"
+    Name    = var.app_name
+    Project = var.app_name
   }
 }
 
@@ -239,40 +237,40 @@ resource "aws_ecr_repository" "app" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_cluster" "main" {
-  name = "default"
+  name = "${var.app_name}-cluster"
 
   tags = {
-    Project = "yarddomino"
+    Project = var.app_name
   }
 }
 
 resource "aws_ecs_task_definition" "app" {
-  family                   = "yarddomino"
+  family                   = var.app_name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
+  cpu                      = var.ecs_cpu
+  memory                   = var.ecs_memory
 
   container_definitions = jsonencode([
     {
-      name      = "yarddomino"
+      name      = var.app_name
       image     = "${aws_ecr_repository.app.repository_url}:latest"
       essential = true
 
       portMappings = [
         {
-          containerPort = 3001
-          hostPort      = 3001
+          containerPort = var.app_port
+          hostPort      = var.app_port
           protocol      = "tcp"
         }
       ]
 
       environment = [
         { name = "NODE_ENV", value = "production" },
-        { name = "PORT", value = "3001" },
+        { name = "PORT", value = tostring(var.app_port) },
         {
           name  = "DATABASE_URL"
-          value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/${aws_db_instance.postgres.db_name}?sslmode=no-verify"
+          value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/${var.db_name}?sslmode=no-verify"
         },
         {
           name  = "REDIS_URL"
@@ -285,7 +283,7 @@ resource "aws_ecs_task_definition" "app" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/yarddomino"
+          "awslogs-group"         = "/ecs/${var.app_name}"
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -294,15 +292,15 @@ resource "aws_ecs_task_definition" "app" {
   ])
 
   tags = {
-    Project = "yarddomino"
+    Project = var.app_name
   }
 }
 
 resource "aws_ecs_service" "app" {
-  name            = "yarddomino-test"
+  name            = "${var.app_name}-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 1
+  desired_count   = var.ecs_desired_count
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -312,6 +310,6 @@ resource "aws_ecs_service" "app" {
   }
 
   tags = {
-    Project = "yarddomino"
+    Project = var.app_name
   }
 }
